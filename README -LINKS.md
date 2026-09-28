@@ -1,0 +1,2 @@
+GitHub = https://github.com/unipds-engenharia-de-ia-aplicada/engenharia-de-software-com-ia-aplicada/tree/main
+Lives = https://drive.google.com/drive/folders/1zp7SKEc4r0M2cLs0oVbLnDHQtzzatxoS
