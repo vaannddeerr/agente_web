@@ -1,74 +1,74 @@
+import torch
+import torch.nn as nn
 import numpy as np
-from datetime import datetime, timedelta
+import pandas as pd
 
-HOUSE_EDGE = 0.03  # Margem teórica de 3% da casa
+# =========================================================
+# 1. DEFINIÇÃO DA ARQUITETURA DA REDE NEURAL (LSTM)
+# =========================================================
+class CrashPredictorLSTM(nn.Module):
+    def __init__(self, input_size=1, hidden_layer_size=128, output_size=1):
+        super(CrashPredictorLSTM, self).__init__()
+        self.hidden_layer_size = hidden_layer_size
+        self.lstm = nn.LSTM(input_size, hidden_layer_size, num_layers=2, batch_first=True, dropout=0.2)
+        self.linear = nn.Linear(hidden_layer_size, output_size)
 
-class PredictorEngine:
-    def __init__(self):
-        # Histórico inicial mínimo para calibrar a frequência
-        self.historico = [1.50, 1.20, 2.10, 1.05]
-        self.ultimo_horario = datetime.now()
+    def forward(self, input_seq):
+        lstm_out, _ = self.lstm(input_seq)
+        predictions = self.linear(lstm_out[:, -1, :])
+        return predictions
 
-    def processar_ultimo_multiplicador(self, ultimo_val):
-        self.historico.append(ultimo_val)
-        self.ultimo_horario = datetime.now()
-        
-        # 1. PREVISÃO DO PRÓXIMO MULTIPLICADOR (Regressão Estocástica Média)
-        # Calcula a tendência de oscilação baseada nas últimas 5 rodadas
-        ultimos_5 = self.historico[-5:]
-        media_recente = np.mean(ultimos_5)
-        mediana_recente = np.median(ultimos_5)
-        
-        # Ponderação do próximo multiplicador esperado
-        proximo_mult_estimado = round((media_recente * 0.4) + (mediana_recente * 0.6), 2)
-        
-        # Garante limite mínimo real do jogo (1.00x)
-        if proximo_mult_estimado < 1.00:
-            proximo_mult_estimado = 1.00
+# =========================================================
+# 2. PREPARAÇÃO E TRATAMENTO DOS DADOS (DATASET)
+# =========================================================
+# Substitua por seu arquivo real (ex: pd.read_csv('historico_crash.csv'))
+# Exemplo com dados simulados:
+dados_brutos = [1.12, 1.04, 1.79, 1.10, 4.16, 1.22, 2.45, 1.14, 1.14, 6.55, 334.77, 1.05, 1.80, 2.10]
 
-        # 2. CÁLCULO DA PORCENTAGEM (Probabilidade Causal do valor estimado)
-        if proximo_mult_estimado <= 1.00:
-            porcentagem = 99.0
-        else:
-            porcentagem = ((1.0 - HOUSE_EDGE) / proximo_mult_estimado) * 100
+def criar_sequencias(dados, janela=5):
+    """
+    Transforma a lista de multiplicadores em janelas de treino.
+    Exemplo (janela=5): usa 5 multiplicadores passados para prever o 6º.
+    """
+    X, y = [], []
+    for i in range(len(dados) - janela):
+        X.append(dados[i : i + janela])
+        y.append(dados[i + janela])
+    return torch.tensor(X, dtype=torch.float32).unsqueeze(-1), torch.tensor(y, dtype=torch.float32).unsqueeze(-1)
 
-        # 3. ESTIMATIVA DO HORÁRIO (Animação do gráfico + intervalo de aposta)
-        # O tempo de tela da rodada é proporcional ao multiplicador que saiu
-        duracao_estimada_rodada = 10.0 + (ultimo_val * 1.3)
-        horario_proxima_entrada = self.ultimo_horario + timedelta(seconds=duracao_estimada_rodada)
+JANELA_CONTEXTO = 5  # Número de rodadas passadas observadas
+X_train, y_train = criar_sequencias(dados_brutos, janela=JANELA_CONTEXTO)
 
-        return proximo_mult_estimado, porcentagem, horario_proxima_entrada, duracao_estimada_rodada
+# =========================================================
+# 3. LOOP DE TREINAMENTO DO MODELO
+# =========================================================
+modelo = CrashPredictorLSTM()
+criterio_perda = nn.MSELoss()  # Erro Quadrático Médio
+otimizador = torch.optim.Adam(modelo.parameters(), lr=0.001)
 
-# --- EXECUÇÃO EM TEMPO REAL ---
-engine = PredictorEngine()
+EPOCHS = 100  # Quantas vezes o modelo vai passar por todo o dataset
 
-print("=========================================================")
-print("   SISTEMA DE PREVISÃO DADOS -> PRÓXIMO / % / HORÁRIO   ")
-print("=========================================================")
+print("=== INICIANDO O TREINAMENTO DA REDE NEURAL ===")
+modelo.train()
 
-while True:
-    print("\n---------------------------------------------------------")
-    entrada = input("Digite o ÚLTIMO multiplicador que deu na tela (ou 'sair'): ")
+for epoch in range(EPOCHS):
+    otimizador.zero_grad()
     
-    if entrada.lower() == 'sair':
-        break
+    # 1. Passada para frente (Forward Pass)
+    predicoes = modelo(X_train)
+    
+    # 2. Cálculo do Erro (Loss)
+    perda = criterio_perda(predicoes, y_train)
+    
+    # 3. Passada para trás (Backpropagation - Aprendizado)
+    perda.backward()
+    otimizador.step()
+    
+    if (epoch + 1) % 20 == 0:
+        print(f"Época [{epoch+1}/{EPOCHS}] - Perda (Loss): {perda.item():.4f}")
 
-    try:
-        ultimo_mult = float(entrada.replace(',', '.'))
-        
-        if ultimo_mult < 1.00:
-            print(">> O multiplicador precisa ser igual ou maior que 1.00x.")
-            continue
-
-        # Executa o cálculo da inferência
-        pred_mult, prob_pct, hora_entrada, tempo_espera = engine.processar_ultimo_multiplicador(ultimo_mult)
-
-        print("\n[PAINEL DE INFERÊNCIA DA PRÓXIMA RODADA]")
-        print(f" -> Próximo Multiplicador Estimado : {pred_mult:.2f}x")
-        print(f" -> Porcentagem (Probabilidade)   : {prob_pct:.1f}%")
-        print(f" -> Horário Estimado de Entrada   : {hora_entrada.strftime('%H:%M:%S')}")
-        print(f" -> Tempo de Espera               : ~{int(tempo_espera)} segundos")
-        print("---------------------------------------------------------")
-
-    except ValueError:
-        print(">> Digite um número válido. Exemplo: 1.75, 2.10, 1.00")
+# =========================================================
+# 4. SALVANDO O MODELO TREINADO
+# =========================================================
+torch.save(modelo.state_dict(), "modelo_crash_lstm.pth")
+print("\n[SUCESSO] Treinamento concluído e modelo salvo como 'modelo_crash_lstm.pth'!")
