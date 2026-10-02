@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modelo Preditivo Crash - IA & Análise Estocástica</title>
+    <style>
+        :root {
+            --bg-color: #0b0e14;
+            --card-bg: #151a23;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-blue: #3b82f6;
+            --text-main: #f3f4f6;
+            --text-dim: #9ca3af;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .header {
+            text-align: center;
+            border-bottom: 1px solid #2d3748;
+            padding-bottom: 15px;
+        }
+
+        .header h1 { margin: 0; font-size: 1.8rem; color: var(--accent-blue); }
+        .header p { margin: 5px 0 0; color: var(--text-dim); font-size: 0.9rem; }
+
+        .grid-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .grid-layout { grid-template-columns: 1fr; }
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            border: 1px solid #2d3748;
+        }
+
+        .card h2 { margin-top: 0; font-size: 1.2rem; color: var(--text-main); border-bottom: 1px solid #2d3748; padding-bottom: 8px; }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        input[type="number"] {
+            flex: 1;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #4b5563;
+            background-color: #1f2937;
+            color: #fff;
+            font-size: 1rem;
+        }
+
+        button {
+            padding: 10px 15px;
+            border-radius: 6px;
+            border: none;
+            background-color: var(--accent-blue);
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        button:hover { opacity: 0.9; }
+
+        .history-box {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            max-height: 150px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #0d1117;
+            border-radius: 6px;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.85rem;
+        }
+
+        .badge-green { background: rgba(34, 197, 94, 0.2); color: var(--accent-green); border: 1px solid var(--accent-green); }
+        .badge-red { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); border: 1px solid var(--accent-red); }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            font-size: 0.95rem;
+        }
+
+        .metric-value { font-weight: bold; }
+
+        .prob-bar-container {
+            background: #374151;
+            height: 12px;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        .prob-bar {
+            height: 100%;
+            background: var(--accent-blue);
+            width: 0%;
+            transition: width 0.4s ease;
+        }
+
+        .console-log {
+            font-family: monospace;
+            background: #05070a;
+            color: #10b981;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            height: 100px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>Crash Predictor Engine v1.0</h1>
+        <p>Análise Estocástica por Cadeias de Markov & Métricas em Tempo Real</p>
+    </div>
+
+    <div class="grid-layout">
+        <!-- Entrada de Dados -->
+        <div class="card">
+            <h2>1. Ingestão de Dados</h2>
+            <div class="input-group">
+                <input type="number" id="multiplierInput" step="0.01" placeholder="Ex: 1.75">
+                <button onclick="addEntry()">Inserir Rodada</button>
+            </div>
+            <button onclick="loadSampleData()" style="background-color: #4b5563; width: 100%;">Carregar Dataset do Print (20 itens)</button>
+            
+            <h3 style="font-size: 0.9rem; margin-top: 15px; color: var(--text-dim);">Histórico Registrado (Mais recente primeiro):</h3>
+            <div class="history-box" id="historyDisplay"></div>
+        </div>
+
+        <!-- Painel de Predição da IA -->
+        <div class="card">
+            <h2>2. Inferência do Modelo</h2>
+            
+            <div class="metric-row">
+                <span>Estado Atual:</span>
+                <span class="metric-value" id="currentState">Aguardando dados...</span>
+            </div>
+
+            <div class="metric-row">
+                <span>Probabilidade de Alta (&ge; 2.00x):</span>
+                <span class="metric-value" id="probHigh">0%</span>
+            </div>
+            <div class="prob-bar-container">
+                <div class="prob-bar" id="probBar"></div>
+            </div>
+
+            <div class="metric-row" style="margin-top: 15px;">
+                <span>Predição Recomendada:</span>
+                <span class="metric-value" id="predictionText">N/A</span>
+            </div>
+
+            <div class="metric-row">
+                <span>Acurácia Histórica da IA:</span>
+                <span class="metric-value" id="accuracyText">0.0%</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Técnicos -->
+    <div class="card">
+        <h2>3. Log de Execução e Ajuste de Matriz</h2>
+        <div class="console-log" id="consoleLog">> Sistema inicializado. Aguardando dados para computar matriz de transição...</div>
+    </div>
+</div>
+
+<script>
+    // Dataset e Variáveis do Modelo
+    let history = [];
+    let predictions = [];
+    
+    // Estados do Modelo (Markov): 
+    // 0 = Baixo (< 2.00x), 1 = Alto (>= 2.00x)
+    let transitionMatrix = {
+        '0->0': 0, // Baixo seguido de Baixo
+        '0->1': 0, // Baixo seguido de Alto
+        '1->0': 0, // Alto seguido de Baixo
+        '1->1': 0  // Alto seguido de Alto
+    };
+
+    let stateCounts = { 0: 0, 1: 0 };
+
+    function log(msg) {
+        const consoleElem = document.getElementById('consoleLog');
+        consoleElem.innerHTML += `<br>> ${msg}`;
+        consoleElem.scrollTop = consoleElem.scrollHeight;
+    }
+
+    function addEntry() {
+        const input = document.getElementById('multiplierInput');
+        const val = parseFloat(input.value);
+
+        if (isNaN(val) || val < 1.0) {
+            alert("Insira um multiplicador válido (>= 1.00)");
+            return;
+        }
+
+        processNewMultiplier(val);
+        input.value = '';
+    }
+
+    function processNewMultiplier(val) {
+        // Validação da predição anterior (se existir)
+        if (predictions.length > 0) {
+            const lastPred = predictions[predictions.length - 1];
+            const actualState = val >= 2.0 ? 1 : 0;
+            lastPred.correct = (lastPred.predictedState === actualState);
+        }
+
+        history.unshift(val); // Adiciona ao início
+        updateMatrix();
+        makePrediction();
+        render();
+    }
+
+    function updateMatrix() {
+        // Reseta contadores
+        transitionMatrix = { '0->0': 0, '0->1': 0, '1->0': 0, '1->1': 0 };
+        stateCounts = { 0: 0, 1: 0 };
+
+        // Processa a sequência histórica (da mais antiga para a mais recente)
+        const chronological = [...history].reverse();
+        
+        for (let i = 0; i < chronological.length - 1; i++) {
+            const currentState = chronological[i] >= 2.0 ? 1 : 0;
+            const nextState = chronological[i+1] >= 2.0 ? 1 : 0;
+
+            transitionMatrix[`${currentState}->${nextState}`]++;
+            stateCounts[currentState]++;
+        }
+    }
+
+    function makePrediction() {
+        if (history.length < 2) return;
+
+        const currentState = history[0] >= 2.0 ? 1 : 0;
+        const countCurrent = stateCounts[currentState];
+
+        let probHigh = 0.5; // Baseline (azar)
+
+        if (countCurrent > 0) {
+            // Calculando a probabilidade condicional P(Próximo = Alto | Atual)
+            probHigh = transitionMatrix[`${currentState}->1`] / countCurrent;
+        }
+
+        const predictedState = probHigh >= 0.5 ? 1 : 0;
+
+        predictions.push({
+            currentState: currentState,
+            probHigh: probHigh,
+            predictedState: predictedState,
+            correct: null // Será preenchido na próxima rodada
+        });
+
+        log(`Estado Atual: [${currentState === 1 ? 'ALTO' : 'BAIXO'}]. P(Próximo >= 2.0) = ${(probHigh * 100).toFixed(1)}%`);
+    }
+
+    function calculateAccuracy() {
+        const evaluated = predictions.filter(p => p.correct !== null);
+        if (evaluated.length === 0) return "0.0%";
+        
+        const correctCount = evaluated.filter(p => p.correct === true).length;
+        const acc = (correctCount / evaluated.length) * 100;
+        return `${acc.toFixed(1)}% (${correctCount}/${evaluated.length})`;
+    }
+
+    function render() {
+        // 1. Atualizar Histórico Visual
+        const historyElem = document.getElementById('historyDisplay');
+        historyElem.innerHTML = '';
+        history.forEach(v => {
+            const badge = document.createElement('span');
+            badge.className = `badge ${v >= 2.0 ? 'badge-green' : 'badge-red'}`;
+            badge.innerText = `${v.toFixed(2)}x`;
+            historyElem.appendChild(badge);
+        });
+
+        // 2. Atualizar Métricas se houver histórico
+        if (history.length > 0) {
+            const currentState = history[0] >= 2.0 ? 1 : 0;
+            document.getElementById('currentState').innerText = currentState === 1 ? 'ALTO (>= 2.0x)' : 'BAIXO (< 2.0x)';
+            document.getElementById('currentState').style.color = currentState === 1 ? 'var(--accent-green)' : 'var(--accent-red)';
+        }
+
+        if (predictions.length > 0) {
+            const currentPred = predictions[predictions.length - 1];
+            const probPct = (currentPred.probHigh * 100).toFixed(1);
+            
+            document.getElementById('probHigh').innerText = `${probPct}%`;
+            document.getElementById('probBar').style.width = `${probPct}%`;
+
+            const predText = document.getElementById('predictionText');
+            predText.innerText = currentPred.predictedState === 1 ? 'ENTRAR (>= 2.00x)' : 'AGUARDAR (< 2.00x)';
+            predText.style.color = currentPred.predictedState === 1 ? 'var(--accent-green)' : 'var(--accent-red)';
+        }
+
+        document.getElementById('accuracyText').innerText = calculateAccuracy();
+    }
+
+    function loadSampleData() {
+        // Dados extraídos diretamente do teu print (do mais antigo para o mais recente)
+        const sample = [
+            1.12, 1.04, 1.79, 1.10, 4.16,
+            1.68, 2.37, 1.15, 1.15, 2.40,
+            5.16, 2.77, 1.00, 1.00, 1.22,
+            1.00, 5.36, 1.75, 1.57, 3.23
+        ];
+
+        history = [];
+        predictions = [];
+        log("Carregando dataset de 20 rodadas da imagem...");
+        
+        sample.forEach(val => processNewMultiplier(val));
+    }
+</script>
+
+</body>
+</html>
