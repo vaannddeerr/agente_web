@@ -1,59 +1,74 @@
-import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-HOUSE_EDGE = 0.03  # Margem padrão de 3% da casa
+HOUSE_EDGE = 0.03  # Margem teórica de 3% da casa
 
-def calcular_probabilidade(target):
-    if target < 1.01:
-        return 0.0
-    return (1.0 - HOUSE_EDGE) / target
+class PredictorEngine:
+    def __init__(self):
+        # Histórico inicial mínimo para calibrar a frequência
+        self.historico = [1.50, 1.20, 2.10, 1.05]
+        self.ultimo_horario = datetime.now()
 
-def estimar_tempo_proxima_rodada(historico_mults, ultimo_horario):
-    # Duração aproximada do gráfico: 10s de espera + (multiplicador * 1.2s)
-    duracao_media = np.mean([10.0 + (m * 1.2) for m in historico_mults[-5:]])
-    proximo_horario = ultimo_horario + timedelta(seconds=duracao_media)
-    return proximo_horario, duracao_media
+    def processar_ultimo_multiplicador(self, ultimo_val):
+        self.historico.append(ultimo_val)
+        self.ultimo_horario = datetime.now()
+        
+        # 1. PREVISÃO DO PRÓXIMO MULTIPLICADOR (Regressão Estocástica Média)
+        # Calcula a tendência de oscilação baseada nas últimas 5 rodadas
+        ultimos_5 = self.historico[-5:]
+        media_recente = np.mean(ultimos_5)
+        mediana_recente = np.median(ultimos_5)
+        
+        # Ponderação do próximo multiplicador esperado
+        proximo_mult_estimado = round((media_recente * 0.4) + (mediana_recente * 0.6), 2)
+        
+        # Garante limite mínimo real do jogo (1.00x)
+        if proximo_mult_estimado < 1.00:
+            proximo_mult_estimado = 1.00
 
-# Base de histórico inicial
-historico_mults = [1.12, 1.04, 1.79, 1.10, 4.16, 1.22]
-ultimo_horario = datetime.now()
+        # 2. CÁLCULO DA PORCENTAGEM (Probabilidade Causal do valor estimado)
+        if proximo_mult_estimado <= 1.00:
+            porcentagem = 99.0
+        else:
+            porcentagem = ((1.0 - HOUSE_EDGE) / proximo_mult_estimado) * 100
 
-print("==================================================")
-print("   SISTEMA DINÂMICO DE PROBABILIDADE E TEMPO    ")
-print("==================================================")
+        # 3. ESTIMATIVA DO HORÁRIO (Animação do gráfico + intervalo de aposta)
+        # O tempo de tela da rodada é proporcional ao multiplicador que saiu
+        duracao_estimada_rodada = 10.0 + (ultimo_val * 1.3)
+        horario_proxima_entrada = self.ultimo_horario + timedelta(seconds=duracao_estimada_rodada)
+
+        return proximo_mult_estimado, porcentagem, horario_proxima_entrada, duracao_estimada_rodada
+
+# --- EXECUÇÃO EM TEMPO REAL ---
+engine = PredictorEngine()
+
+print("=========================================================")
+print("   SISTEMA DE PREVISÃO DADOS -> PRÓXIMO / % / HORÁRIO   ")
+print("=========================================================")
 
 while True:
-    print("\n--------------------------------------------------")
+    print("\n---------------------------------------------------------")
+    entrada = input("Digite o ÚLTIMO multiplicador que deu na tela (ou 'sair'): ")
+    
+    if entrada.lower() == 'sair':
+        break
+
     try:
-        # 1. Você escolhe o Cashout que quer testar agora
-        alvo_str = input("Qual multiplicador você quer buscar agora? (ex: 1.50, 2.50) ou 'sair': ")
-        if alvo_str.lower() == 'sair':
-            break
+        ultimo_mult = float(entrada.replace(',', '.'))
         
-        alvo_desejado = float(alvo_str)
-        
-        # 2. Re-calcula a probabilidade do seu novo alvo
-        prob = calcular_probabilidade(alvo_desejado)
-        
-        # 3. Calcula a estimativa de tempo baseada nas últimas rodadas
-        horario_estimado, tempo_espera = estimar_tempo_proxima_rodada(historico_mults, ultimo_horario)
-        
-        print("\n[RESULTADO DA INFERÊNCIA]")
-        print(f" -> Alvo Selecionado        : {alvo_desejado:.2f}x")
-        print(f" -> Probabilidade Real      : {prob * 100:.2f}%")
-        print(f" -> Horário Estimado Entrada: {horario_estimado.strftime('%H:%M:%S')}")
-        print(f" -> Tempo Espera Aproximado : ~{int(tempo_espera)} segundos")
-        print("--------------------------------------------------")
-        
-        # 4. Atualiza o sistema com o resultado que acabou de sair no jogo
-        novo_resultado = input("O que saiu na tela do jogo agora? (ex: 1.15): ")
-        if novo_resultado.lower() == 'sair':
-            break
-            
-        val_real = float(novo_resultado)
-        historico_mults.append(val_real)
-        ultimo_horario = datetime.now()
-        
+        if ultimo_mult < 1.00:
+            print(">> O multiplicador precisa ser igual ou maior que 1.00x.")
+            continue
+
+        # Executa o cálculo da inferência
+        pred_mult, prob_pct, hora_entrada, tempo_espera = engine.processar_ultimo_multiplicador(ultimo_mult)
+
+        print("\n[PAINEL DE INFERÊNCIA DA PRÓXIMA RODADA]")
+        print(f" -> Próximo Multiplicador Estimado : {pred_mult:.2f}x")
+        print(f" -> Porcentagem (Probabilidade)   : {prob_pct:.1f}%")
+        print(f" -> Horário Estimado de Entrada   : {hora_entrada.strftime('%H:%M:%S')}")
+        print(f" -> Tempo de Espera               : ~{int(tempo_espera)} segundos")
+        print("---------------------------------------------------------")
+
     except ValueError:
-        print(">> Entrada inválida! Digite números usando ponto (ex: 1.80)")
+        print(">> Digite um número válido. Exemplo: 1.75, 2.10, 1.00")
