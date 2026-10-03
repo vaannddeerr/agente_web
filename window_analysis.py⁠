@@ -1,0 +1,24 @@
+import os
+import pandas as pd
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CSV_PATH = os.path.join(BASE_DIR, 'data', 'historico_crash.csv')
+
+df = pd.read_csv(CSV_PATH)
+df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+# Filtrar velas consideradas "altas" (ex: >= 5.0x)
+velas_altas = df[df['multiplier'] >= 5.0].copy()
+
+if len(velas_altas) >= 2:
+    velas_altas['diff_minutos'] = velas_altas['timestamp'].diff().dt.total_seconds() / 60.0
+    media_intervalo = velas_altas['diff_minutos'].mean()
+    
+    ultima_vela_alta = velas_altas.iloc[-1]
+    proxima_janela = ultima_vela_alta['timestamp'] + pd.Timedelta(minutes=media_intervalo)
+    
+    print(f"Última vela alta ({ultima_vela_alta['multiplier']}x) ocorreu às: {ultima_vela_alta['timestamp'].strftime('%H:%M:%S')}")
+    print(f"Intervalo médio entre velas altas: ~{media_intervalo:.1f} minutos")
+    print(f"--> Estimativa para a próxima janela favorável: {proxima_janela.strftime('%H:%M:%S')}")
+else:
+    print("Dados insuficientes para calcular intervalos de velas altas. Continue adicionando prints.")
