@@ -5,13 +5,12 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
-# 1. Definir caminhos
+# 1. Caminhos
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSV_PATH = os.path.join(BASE_DIR, 'data', 'historico_crash.csv')
 MODEL_PATH = os.path.join(BASE_DIR, 'models', 'modelo_crash_lstm.pth')
 
 
-# Definir classe da LSTM
 class CrashLSTM(nn.Module):
 
   def __init__(self, input_size=1, hidden_size=32, num_layers=1):
@@ -24,35 +23,39 @@ class CrashLSTM(nn.Module):
     return self.fc(out[:, -1, :])
 
 
-print('=== SINAL DE ENTRADA COM MULTIPLICADOR ALVO ===\n')
+print('=== ANÁLISE DE JANELA & MULTIPLICADORES ALVO ===\n')
 
-# 2. Ler histórico
+# 2. Carregar CSV
 df = pd.read_csv(CSV_PATH)
 df['timestamp'] = pd.to_datetime(df['timestamp'])
 
-THRESHOLD = 5.0  # Critério de vela alta
+THRESHOLD = 5.0  # Vela alta a partir de 5.0x
 velas_altas = df[df['multiplier'] >= THRESHOLD].copy()
 
 if len(velas_altas) >= 2:
-  # Intervalo médio em minutos
+  # Intervalo médio entre velas altas
   velas_altas['diff_min'] = (
       velas_altas['timestamp'].diff().dt.total_seconds() / 60.0
   )
   media_intervalo = velas_altas['diff_min'].mean()
 
+  # Estatísticas das velas altas do histórico
+  mediana_velas_altas = velas_altas['multiplier'].median()
+  media_velas_altas = velas_altas['multiplier'].mean()
+
   ultima_vela = velas_altas.iloc[-1]
   proxima_janela = ultima_vela['timestamp'] + timedelta(minutes=media_intervalo)
   agora = datetime.now()
 
-  # Se a janela calculada já passou em relação à hora atual, avança os ciclos
+  # Projetar para a próxima janela futura
   while proxima_janela < agora:
     proxima_janela += timedelta(minutes=media_intervalo)
 
   tempo_restante = (proxima_janela - agora).total_seconds()
-  minutos_restantes = int(tempo_restante // 60)
-  segundos_restantes = int(tempo_restante % 60)
+  minutos_r = int(tempo_restante // 60)
+  segundos_r = int(tempo_restante % 60)
 
-  # 3. Tentar obter estimativa da LSTM
+  # 3. Previsão da LSTM (se o arquivo existir)
   pred_lstm = None
   if os.path.exists(MODEL_PATH):
     try:
@@ -73,21 +76,41 @@ if len(velas_altas) >= 2:
     except Exception:
       pass
 
-  # 4. Exibir o Sinal Completo
-  print(f'Hora do Sistema: {agora.strftime("%H:%M:%S")}')
-  print(f'Intervalo do Ciclo: ~{media_intervalo:.1f} minutos')
-  print('-' * 45)
-  print(f'--> HORÁRIO RECOMENDADO DE ENTRADA: {proxima_janela.strftime("%H:%M:%S")}')
-  print(f'--> TEMPO RESTANTE: {minutos_restantes}m {segundos_restantes}s')
+  # 4. Definição dos Alvos de Entrada
+  alvo_conservador = 2.00
+  alvo_moderado = 5.00
+  alvo_alavancado = (
+      round(pred_lstm * 0.7, 2)
+      if (pred_lstm and pred_lstm > 5.0)
+      else round(mediana_velas_altas * 0.6, 2)
+  )
 
-  # Definir Multiplicador Alvo
-  if pred_lstm is not None:
-    alvo_seguro = min(pred_lstm * 0.5, 3.00)  # Stop gain de segurança
-    print(f'--> MULTIPLICADOR PREVISTO (LSTM): {pred_lstm:.2f}x')
-    print(f'--> MULTIPLICADOR ALVO SUGERIDO (Saída Segura): {alvo_seguro:.2f}x')
-  else:
-    print('--> MULTIPLICADOR ALVO SUGERIDO: 2.00x a 3.00x')
-  print('-' * 45)
+  # 5. Saída no Terminal
+  print(f'Hora Atual do Sistema: {agora.strftime("%H:%M:%S")}')
+  print(
+      f'Última Vela Alta ({ultima_vela["multiplier"]}x):'
+      f' {ultima_vela["timestamp"].strftime("%H:%M:%S")}'
+  )
+  print(f'Ciclo Médio do Histórico: a cada ~{media_intervalo:.1f} minutos')
+  print('-' * 50)
+  print(
+      '--> HORÁRIO ESTIMADO DA PRÓXIMA JANELA:'
+      f' {proxima_janela.strftime("%H:%M:%S")}'
+  )
+  print(f'--> TEMPO RESTANTE: {minutos_r}m {segundos_r}s')
+  print('-' * 50)
+  print('SUGESTÕES DE SAÍDA (TARGETS):')
+  print(f' 🟢 Conservador (Alta taxa de acerto):  {alvo_conservador:.2f}x')
+  print(
+      f' 🟡 Moderado (Início da Janela Alta):  {alvo_moderado:.2f}x'
+  )
+  print(
+      ' 🔴 Alavancado (Média do Ciclo):       '
+      f' {max(alvo_alavancado, 8.00):.2f}x'
+  )
+  if pred_lstm:
+    print(f' 🤖 Estimativa Pura da LSTM:           {pred_lstm:.2f}x')
+  print('-' * 50)
 
 else:
-  print('Poucas velas altas no CSV para projetar o ciclo.')
+  print('Insira mais dados de velas altas no CSV para projetar a janela.')
