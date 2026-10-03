@@ -1,57 +1,93 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
+import numpy as np
 import pandas as pd
+import torch
+import torch.nn as nn
 
-# Localizar o ficheiro CSV
+# 1. Definir caminhos
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSV_PATH = os.path.join(BASE_DIR, 'data', 'historico_crash.csv')
+MODEL_PATH = os.path.join(BASE_DIR, 'models', 'modelo_crash_lstm.pth')
 
-if not os.path.exists(CSV_PATH):
-    raise FileNotFoundError(f'Ficheiro não encontrado em: {CSV_PATH}')
 
-# Carregar dados
+# Definir classe da LSTM
+class CrashLSTM(nn.Module):
+
+  def __init__(self, input_size=1, hidden_size=32, num_layers=1):
+    super(CrashLSTM, self).__init__()
+    self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+    self.fc = nn.Linear(hidden_size, 1)
+
+  def forward(self, x):
+    out, _ = self.lstm(x)
+    return self.fc(out[:, -1, :])
+
+
+print('=== SINAL DE ENTRADA COM MULTIPLICADOR ALVO ===\n')
+
+# 2. Ler histórico
 df = pd.read_csv(CSV_PATH)
 df['timestamp'] = pd.to_datetime(df['timestamp'])
 
-print('=== ANÁLISE DE JANELAS EM TEMPO REAL ===')
-
-THRESHOLD = 5.0  # Mínimo para considerar vela alta
+THRESHOLD = 5.0  # Critério de vela alta
 velas_altas = df[df['multiplier'] >= THRESHOLD].copy()
 
 if len(velas_altas) >= 2:
-    # Intervalo médio entre velas altas (em minutos)
-    velas_altas['diff_minutos'] = (
-        velas_altas['timestamp'].diff().dt.total_seconds() / 60.0
-    )
-    media_intervalo = velas_altas['diff_minutos'].mean()
+  # Intervalo médio em minutos
+  velas_altas['diff_min'] = (
+      velas_altas['timestamp'].diff().dt.total_seconds() / 60.0
+  )
+  media_intervalo = velas_altas['diff_min'].mean()
 
-    ultima_vela_alta = velas_altas.iloc[-1]
-    proxima_janela = ultima_vela_alta['timestamp'] + pd.Timedelta(
-        minutes=media_intervalo
-    )
+  ultima_vela = velas_altas.iloc[-1]
+  proxima_janela = ultima_vela['timestamp'] + timedelta(minutes=media_intervalo)
+  agora = datetime.now()
 
-    # Obter a hora exata de AGORA
-    agora = datetime.now()
-    diferenca_segundos = (proxima_janela - agora).total_seconds()
+  # Se a janela calculada já passou em relação à hora atual, avança os ciclos
+  while proxima_janela < agora:
+    proxima_janela += timedelta(minutes=media_intervalo)
 
-    print(f'Hora Atual do Sistema: {agora.strftime("%H:%M:%S")}')
-    print(
-        f'Última Vela Alta ({ultima_vela_alta["multiplier"]}x): {ultima_vela_alta["timestamp"].strftime("%H:%M:%S")}'
-    )
-    print(f'Intervalo Médio Calculado: ~{media_intervalo:.1f} minutos')
-    print('-' * 45)
-    print(
-        f'--> Próxima Janela Estimada: {proxima_janela.strftime("%H:%M:%S")}'
-    )
+  tempo_restante = (proxima_janela - agora).total_seconds()
+  minutos_restantes = int(tempo_restante // 60)
+  segundos_restantes = int(tempo_restante % 60)
 
-    if diferenca_segundos > 0:
-        minutos = int(diferenca_segundos // 60)
-        segundos = int(diferenca_segundos % 60)
-        print(f'--> TEMPO RESTANTE PARA ENTRAR: {minutos}m {segundos}s')
-    else:
-        min_passados = int(abs(diferenca_segundos) // 60)
-        print(
-            f'--> JANELA EM ANDAMENTO (prevista há {min_passados} min). Aguarde o próximo padrão!'
-        )
+  # 3. Tentar obter estimativa da LSTM
+  pred_lstm = None
+  if os.path.exists(MODEL_PATH):
+    try:
+      checkpoint = torch.load(MODEL_PATH)
+      min_v, max_v = checkpoint['min_val'], checkpoint['max_val']
+
+      model = CrashLSTM()
+      model.load_state_dict(checkpoint['model_state'])
+      model.eval()
+
+      ultimas_5 = df['multiplier'].values[-5:]
+      norm_5 = (ultimas_5 - min_v) / (max_v - min_v + 1e-8)
+      inp = torch.tensor(norm_5, dtype=torch.float32).view(1, 5, 1)
+
+      with torch.no_grad():
+        pred_norm = model(inp).item()
+      pred_lstm = pred_norm * (max_v - min_v + 1e-8) + min_v
+    except Exception:
+      pass
+
+  # 4. Exibir o Sinal Completo
+  print(f'Hora do Sistema: {agora.strftime("%H:%M:%S")}')
+  print(f'Intervalo do Ciclo: ~{media_intervalo:.1f} minutos')
+  print('-' * 45)
+  print(f'--> HORÁRIO RECOMENDADO DE ENTRADA: {proxima_janela.strftime("%H:%M:%S")}')
+  print(f'--> TEMPO RESTANTE: {minutos_restantes}m {segundos_restantes}s')
+
+  # Definir Multiplicador Alvo
+  if pred_lstm is not None:
+    alvo_seguro = min(pred_lstm * 0.5, 3.00)  # Stop gain de segurança
+    print(f'--> MULTIPLICADOR PREVISTO (LSTM): {pred_lstm:.2f}x')
+    print(f'--> MULTIPLICADOR ALVO SUGERIDO (Saída Segura): {alvo_seguro:.2f}x')
+  else:
+    print('--> MULTIPLICADOR ALVO SUGERIDO: 2.00x a 3.00x')
+  print('-' * 45)
+
 else:
-    print('Dados insuficientes para calcular janelas.')
+  print('Poucas velas altas no CSV para projetar o ciclo.')
