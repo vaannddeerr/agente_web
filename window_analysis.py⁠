@@ -1,24 +1,57 @@
+from datetime import datetime
 import os
 import pandas as pd
 
+# Localizar o ficheiro CSV
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSV_PATH = os.path.join(BASE_DIR, 'data', 'historico_crash.csv')
 
+if not os.path.exists(CSV_PATH):
+    raise FileNotFoundError(f'Ficheiro não encontrado em: {CSV_PATH}')
+
+# Carregar dados
 df = pd.read_csv(CSV_PATH)
 df['timestamp'] = pd.to_datetime(df['timestamp'])
 
-# Filtrar velas consideradas "altas" (ex: >= 5.0x)
-velas_altas = df[df['multiplier'] >= 5.0].copy()
+print('=== ANÁLISE DE JANELAS EM TEMPO REAL ===')
+
+THRESHOLD = 5.0  # Mínimo para considerar vela alta
+velas_altas = df[df['multiplier'] >= THRESHOLD].copy()
 
 if len(velas_altas) >= 2:
-    velas_altas['diff_minutos'] = velas_altas['timestamp'].diff().dt.total_seconds() / 60.0
+    # Intervalo médio entre velas altas (em minutos)
+    velas_altas['diff_minutos'] = (
+        velas_altas['timestamp'].diff().dt.total_seconds() / 60.0
+    )
     media_intervalo = velas_altas['diff_minutos'].mean()
-    
+
     ultima_vela_alta = velas_altas.iloc[-1]
-    proxima_janela = ultima_vela_alta['timestamp'] + pd.Timedelta(minutes=media_intervalo)
-    
-    print(f"Última vela alta ({ultima_vela_alta['multiplier']}x) ocorreu às: {ultima_vela_alta['timestamp'].strftime('%H:%M:%S')}")
-    print(f"Intervalo médio entre velas altas: ~{media_intervalo:.1f} minutos")
-    print(f"--> Estimativa para a próxima janela favorável: {proxima_janela.strftime('%H:%M:%S')}")
+    proxima_janela = ultima_vela_alta['timestamp'] + pd.Timedelta(
+        minutes=media_intervalo
+    )
+
+    # Obter a hora exata de AGORA
+    agora = datetime.now()
+    diferenca_segundos = (proxima_janela - agora).total_seconds()
+
+    print(f'Hora Atual do Sistema: {agora.strftime("%H:%M:%S")}')
+    print(
+        f'Última Vela Alta ({ultima_vela_alta["multiplier"]}x): {ultima_vela_alta["timestamp"].strftime("%H:%M:%S")}'
+    )
+    print(f'Intervalo Médio Calculado: ~{media_intervalo:.1f} minutos')
+    print('-' * 45)
+    print(
+        f'--> Próxima Janela Estimada: {proxima_janela.strftime("%H:%M:%S")}'
+    )
+
+    if diferenca_segundos > 0:
+        minutos = int(diferenca_segundos // 60)
+        segundos = int(diferenca_segundos % 60)
+        print(f'--> TEMPO RESTANTE PARA ENTRAR: {minutos}m {segundos}s')
+    else:
+        min_passados = int(abs(diferenca_segundos) // 60)
+        print(
+            f'--> JANELA EM ANDAMENTO (prevista há {min_passados} min). Aguarde o próximo padrão!'
+        )
 else:
-    print("Dados insuficientes para calcular intervalos de velas altas. Continue adicionando prints.")
+    print('Dados insuficientes para calcular janelas.')
