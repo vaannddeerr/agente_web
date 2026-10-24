@@ -1,0 +1,43 @@
+
+from mcp.server.fastmcp import FastMCP
+
+# Cria o servidor MCP
+mcp = FastMCP("MeuServidorMCP")
+
+
+# Ferramenta 1: soma dois números
+@mcp.tool()
+def somar(a: float, b: float) -> float:
+    """Soma dois números e retorna o resultado."""
+    return a + b
+
+
+# Ferramenta 2: consulta um usuário fictício
+@mcp.tool()
+def consultar_usuario(nome: str) -> dict:
+    """Consulta informações de um usuário pelo nome."""
+
+    usuarios = {
+        "ana": {
+            "nome": "Ana",
+            "idade": 28,
+            "cidade": "Campinas"
+        },
+        "joao": {
+            "nome": "João",
+            "idade": 35,
+            "cidade": "São Paulo"
+        }
+    }
+
+    usuario = usuarios.get(nome.lower())
+
+    if usuario is None:
+        return {"erro": "Usuário não encontrado"}
+
+    return usuario
+
+
+# Inicia o servidor
+if __name__ == "__main__":
+    mcp.run(transport="stdio")
