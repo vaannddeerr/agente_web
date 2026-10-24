@@ -1,4 +1,4 @@
-
+pip install "mcp[cli]"
 from mcp.server.fastmcp import FastMCP
 
 # Cria o servidor MCP
